@@ -94,6 +94,9 @@ namespace eval ::CBFlow::InputResolve {
 
         set resolved_vars [list]
 
+        # <EXIT>@candidate tags -> the exit's release candidate (utils.tcl)
+        cbflow_expand_candidates
+
         # ── Signoff flows (<flow>(release,exit_from)) read only the exit's
         # release: the exit tag must be set; from_run, explicit input paths
         # and per-input tags other than the exit tag are refused (inputs in

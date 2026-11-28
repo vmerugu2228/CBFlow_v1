@@ -61,6 +61,41 @@ discipline are listed by `cbflow flow checklist list` (column 2 = discipline).
 
 ---
 
+### Release candidates
+
+An exit can be released several times in a phase: `BTO`, then `BTO_ECO1` and
+`BTO_ECO2` from ECO, or `P3_SYNTH_v1` / `P3_SYNTH_v2`. The **candidate** is the
+version the phase goes forward with:
+
+- By default it is the **latest release** of the exit: the newest version a flow
+  produced. Releases that only verified the exit (STA / PV / LEC / GLS releasing
+  as `BTO`; their own tag is among their MANIFEST `upstream_tags`) are not versions.
+- `cbflow flow release candidate set` pins another version; `clear` returns to the latest.
+
+```bash
+cbflow flow release candidate list    --project opensky --phase P3
+cbflow flow release candidate show    --project opensky --phase P3 --block gcd --exit BTO
+cbflow flow release candidate set     --project opensky --phase P3 --block gcd --exit BTO \
+                                      --flow ECO --tag BTO_ECO1 --reason "setup closed"
+cbflow flow release candidate clear   --project opensky --phase P3 --block gcd --exit BTO
+cbflow flow release candidate history --project opensky --phase P3 --block gcd
+```
+
+Pins live in `<release>/<phase>/<block>/CANDIDATES` (history in `CANDIDATES.log`).
+`set` refuses a tag that is not a version of the exit, an unreleased version, a
+signoff release, and a PD exit outside the phase's `project(phase_exits)`.
+
+Downstream runs read the candidate with `"<EXIT>@candidate"`:
+
+```tcl
+set sta(input,release_tag) "BTO@candidate"
+```
+
+`cbflow_candidate_tag` (utils.tcl) replaces it with the real tag before inputs
+resolve, so the signoff release, its MANIFEST `upstream_tags` and the staged
+inputs all carry the real version (`BTO_ECO1`). The checklist skill's
+`tag_audit.py` flags runs built on a version that is not the candidate.
+
 ## 2. The release follows its source stage
 
 An `export_data` / `release_data` pair releases its **source stage**. The

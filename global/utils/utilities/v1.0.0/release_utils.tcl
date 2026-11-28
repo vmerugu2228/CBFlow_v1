@@ -43,6 +43,7 @@ proc default_exit_tag {flow_type phase} {
     global project MILESTONE_ORDER
     set _arr [string tolower $flow_type]
     upvar #0 $_arr _fa
+    cbflow_expand_candidates
     # Signoff flows (STA, PV, LEC…) release the exit they verify: the tag of
     # the input named by <flow>(release,exit_from), e.g. sta(input,release_tag).
     if {[info exists _fa(release,exit_from)] && $_fa(release,exit_from) ne ""} {
@@ -402,6 +403,7 @@ proc _collect_upstream_tags {} {
         spec_ramp planning tb_setup m1_exec m2_exec m3_exec m4_exec \
         eco_exec dv_signoff \
         rtl_lint rtl_cdc rtl_rdc upf_check]
+    cbflow_expand_candidates
     set tags [list]
     foreach _arr $_known_flows {
         if {![array exists ::$_arr]} continue

@@ -92,6 +92,31 @@ check reads a fixed run-relative path: other flows' runs need their own tool-map
 `scripts/learn.py add` — format in [learned/README.md](learned/README.md). `checklist_triage.py`
 prints entries whose `check` matches; `missing_checks.py` flags suggestions recorded as `missing-rejected`.
 
+## Tag audit (`scripts/tag_audit.py`)
+| Code | Sev | Meaning → action |
+|---|---|---|
+| MISSING_INPUT | ERROR | consumed tag / path not released → release it or fix the tag |
+| STALE_INPUT | ERROR | upstream re-released after this release → rerun this run |
+| STALE_UPSTREAM | ERROR | an upstream is itself stale → rerun in plan order |
+| SIGNOFF_SPLIT | ERROR | STA / PV / LEC of one exit read different implementation releases |
+| LIBTAG_MISSING | ERROR | `project(lib_config_tag)` has no tag dir |
+| CHILD_MISSING / CHILD_STALE | ERROR | child not in the parent's tag / tag copy older than the child's re-release → library-manager: new tag |
+| NOT_CANDIDATE | WARN | built on a version that is not the exit's candidate → `"<EXIT>@candidate"` or pin that version |
+| CHILD_NOT_CANDIDATE | WARN | tag carries a child version that is not the child's candidate |
+| RTL_NOT_SIGNED | WARN | RTL / filelist outside a release (use LINT_SIGNOFF `rtl/<d>.f`) |
+| LIBTAG_MIX | WARN | PD / DFT releases of one block use different library tags |
+| FROM_RUN / CHILD_PV_PENDING | WARN | input from a run dir / child gds-cdl from PNR |
+| LIBTAG_OLD / LATER_PHASE / CHILD_LATER / PHASE_MIX | INFO | context |
+
+Inputs come from the release's run (`MANIFEST.json run_dir` → `setup/user_config.tcl`
++ `override_config*.tcl`); without the run, MANIFEST `upstream_tags`. A release
+whose own tag is among its upstream tags verified that exit (STA / PV / LEC /
+GLS BTO) — not a version of it. An ECO of an exit building on the base version
+is not flagged. Times are `RELEASE_COMPLETE` mtimes.
+
+Release candidates: `cbflow flow release candidate list|show|set|clear|history`
+(`<release>/<phase>/<block>/CANDIDATES`); default = latest release of the exit.
+
 ## Commands
 | Command | Use |
 |---|---|
@@ -105,3 +130,5 @@ prints entries whose `check` matches; `missing_checks.py` flags suggestions reco
 | `scripts/checklist_triage.py <run> --milestone <M>` | ranked failures + evidence + remediation |
 | `scripts/missing_checks.py <run> --milestone <M>` | missing / lax checks + add-check commands |
 | `scripts/learn.py context|read|add` | learned store |
+| `scripts/tag_audit.py --project <p> [--phase P] [--blocks …]` | tags / dependencies across blocks + rebuild plan |
+| `bin/cbflow flow release candidate list|show …` | release candidate per phase / block / exit |

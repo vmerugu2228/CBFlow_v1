@@ -253,6 +253,14 @@ publishing is opt-in (`--publish`). Signoff flows (STA/PV/LEC) read only their e
 `<flow>(release,exit_from)` names the exit input, `<flow>(release,exit_exempt_inputs)` (LEC `{netlist_golden}`)
 lists exceptions; from_run / explicit paths / other tags are refused. Doc: `PD/docs/02-user-guide/exit-release-guide.md`.
 
+### Release candidates
+Several versions of an exit per phase (BTO, BTO_ECO1, P3_SYNTH_v2 …): the candidate is the latest release
+(produced, not a signoff release that verified it) unless pinned —
+`cbflow flow release candidate {list,show,set,clear,history} --project <p> --phase <P> --block <b> --exit <X>
+[--flow F --tag T --reason]` (`<release>/<phase>/<block>/CANDIDATES`). Consumers: `<arr>(input,release_tag)
+"<EXIT>@candidate"` (resolved to the real tag by `cbflow_candidate_tag`, utils.tcl). Cross-block tag / dependency
+audit + rebuild plan: `.claude/skills/checklist/scripts/tag_audit.py --project <p> [--phase P]`.
+
 ### Releasing an intermediate stage (e.g. place → PLACE_EXIT)
 The export/release pair releases its **source stage**: the nearest non-bypassed
 implementation node upstream of the export node (`oss_source_node`). The

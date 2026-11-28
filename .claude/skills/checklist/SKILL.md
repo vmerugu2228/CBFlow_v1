@@ -96,8 +96,32 @@ kinds: `failure` (value, scenario), `cause` (confirmed root cause), `fix` /
 `threshold`, `note`. Tech-wide (`_tech.md`) only for facts that hold for every
 block on the node (library / PDK / tool behaviour).
 
+## 6b. Tags and dependencies across the blocks
+Before trusting a milestone, check that every release was built on the right
+upstream versions — RTL tag, synthesis / floorplan / PNR tags, library tag,
+children in the parent's library tag:
+```bash
+python3 $SK/scripts/tag_audit.py --project <p> [--phase <P>] [--blocks <b> …] [--quiet] [--json out.json]
+```
+It traces each release's inputs (its run's `<arr>(input,*release_tag)` /
+release paths / `from_run` / `project(lib_config_tag)`) through the handshake
+map and reports, per block: stale inputs (upstream re-released after the
+consumer was built — transitive too), missing inputs, versions that are not
+the exit's **release candidate** (latest release unless pinned with
+`cbflow flow release candidate set`), RTL read outside a signed-off release,
+library-tag mix along a chain / missing tag / newer tag, signoff flows of one
+exit reading different implementation releases, and for parents: children
+missing from the library tag, a tag copy older than the child's re-release,
+a child version that is not the child's candidate, `pv_release PENDING`.
+Then a **resolution plan**: the releases to rebuild in dependency order (run
+dir + `retrace --from <first node>` + `run all`; spec-to-GDS blocks:
+`run_spec2gds.sh FROM=`), and the config lines to change (`"<EXIT>@candidate"`,
+library tag, new tag for a stale child) — show them; reruns, candidate pins and
+config edits are the user's call. Exit 1 when any ERROR. Checks / codes:
+reference.md → Tag audit.
+
 ## 7. Report
 Verdict + counts; the ranked blockers (evidence, cause, design vs checklist
 problem, proposed action); non-blocking items worth action (all of them at
-BTO/MTO); missing-check shortlist with commands; what you recorded in the
+BTO/MTO); tag / dependency audit result and its rebuild plan; missing-check shortlist with commands; what you recorded in the
 learned store; any framework issue found (file + line) for the owner.
